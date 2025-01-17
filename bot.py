@@ -4,9 +4,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from datetime import datetime
 import logging
 import pytz
+import sys
 
 # Налаштування логування
 logging.basicConfig(
+    stream=sys.stdout,  # Важливо для Render
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
@@ -15,9 +17,6 @@ logger = logging.getLogger(__name__)
 # Ініціалізація бота
 TOKEN = "7554224281:AAFR9eSa7oxRilNmM2kuh3tIhDWJu1B08ws"
 GROUP_ID = -1002411083990
-
-# Кеш для файлів
-file_cache = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробка команди /start"""
@@ -56,6 +55,7 @@ async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         message_id=message.message_id
                     )
                     found = True
+                    logger.info(f"Знайдено книгу: {message.document.file_name}")
                     break
         
         if not found:
@@ -66,6 +66,7 @@ async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "- Використати коротшу назву\n"
                 "- Пошукати іншу книгу"
             )
+            logger.info(f"Книгу не знайдено для запиту: {query}")
             
     except Exception as e:
         logger.error(f"Помилка пошуку: {str(e)}")
@@ -82,6 +83,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📚 База книг: активна\n"
         f"🔍 Пошук: доступний"
     )
+    logger.info("Перевірка статусу виконана")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Довідка"""
@@ -102,18 +104,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Запуск бота"""
-    # Створення застосунку
-    application = Application.builder().token(TOKEN).build()
+    try:
+        # Створення застосунку
+        application = Application.builder().token(TOKEN).build()
 
-    # Додавання обробників команд
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("search", search_book))
-    application.add_handler(CommandHandler("status", status))
-    application.add_handler(CommandHandler("help", help_command))
+        # Додавання обробників команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("search", search_book))
+        application.add_handler(CommandHandler("status", status))
+        application.add_handler(CommandHandler("help", help_command))
 
-    # Запуск бота
-    logger.info("Бот запущений...")
-    application.run_polling()
+        # Запуск бота
+        logger.info("Бот запущений...")
+        application.run_polling()
+        
+    except Exception as e:
+        logger.error(f"Помилка при запуску бота: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
