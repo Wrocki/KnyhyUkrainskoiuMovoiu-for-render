@@ -1,10 +1,11 @@
 import os
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from datetime import datetime
 import logging
 import pytz
 import sys
+import asyncio
 
 # Налаштування логування
 logging.basicConfig(
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Ініціалізація бота
 TOKEN = "7554224281:AAFR9eSa7oxRilNmM2kuh3tIhDWJu1B08ws"
 GROUP_ID = -1002411083990
+
+# Кеш для зберігання повідомлень
+message_cache = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробка команди /start"""
@@ -43,23 +47,33 @@ async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_message = await update.message.reply_text("🔍 Шукаю книгу...")
     
     try:
-        found = False
-        messages = await context.bot.get_updates()
-        for update in messages:
-            if update.message and update.message.chat_id == GROUP_ID and update.message.document:
-                filename = update.message.document.file_name.lower()
-                if query in filename:
-                    await status_message.edit_text(f"📚 Знайдено: {update.message.document.file_name}")
-                    await context.bot.forward_message(
-                        chat_id=update.effective_chat.id,
-                        from_chat_id=GROUP_ID,
-                        message_id=update.message.message_id
-                    )
-                    found = True
-                    logger.info(f"Знайдено книгу: {update.message.document.file_name}")
-                    break
+        found_books = []
+        # Отримуємо останні повідомлення з групи
+        messages = await context.bot.copy_message(
+            chat_id=update.effective_chat.id,
+            from_chat_id=GROUP_ID,
+            message_id=1,
+            disable_notification=True
+        )
         
-        if not found:
+        for msg in messages:
+            if hasattr(msg, 'document') and msg.document:
+                filename = msg.document.file_name.lower()
+                if query in filename:
+                    found_books.append(msg)
+                    if len(found_books) >= 5:  # Обмежуємо кількість результатів
+                        break
+
+        if found_books:
+            await status_message.edit_text(f"📚 Знайдено {len(found_books)} книг:")
+            for book in found_books:
+                await context.bot.forward_message(
+                    chat_id=update.effective_chat.id,
+                    from_chat_id=GROUP_ID,
+                    message_id=book.message_id
+                )
+            logger.info(f"Знайдено {len(found_books)} книг для запиту: {query}")
+        else:
             await status_message.edit_text(
                 "❌ Книгу не знайдено.\n"
                 "Спробуйте:\n"
@@ -103,6 +117,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Якщо книгу не знайдено, спробуйте інший варіант назви"
     )
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обробка помилок"""
+    logger.error(f"Update {update} caused error {context.error}")
+
 def main():
     """Запуск бота"""
     try:
@@ -115,9 +133,12 @@ def main():
         application.add_handler(CommandHandler("status", status))
         application.add_handler(CommandHandler("help", help_command))
 
+        # Додавання обробника помилок
+        application.add_error_handler(error_handler)
+
         # Запуск бота
         logger.info("Бот запущений...")
-        application.run_polling()
+        application.run_polling(drop_pending_updates=True)
         
     except Exception as e:
         logger.error(f"Помилка при запуску бота: {str(e)}")
