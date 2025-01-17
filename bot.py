@@ -8,7 +8,7 @@ import sys
 
 # Налаштування логування
 logging.basicConfig(
-    stream=sys.stdout,  # Важливо для Render
+    stream=sys.stdout,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
@@ -44,18 +44,19 @@ async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         found = False
-        async for message in context.bot.get_chat_history(chat_id=GROUP_ID, limit=1000):
-            if message.document:
-                filename = message.document.file_name.lower()
+        messages = await context.bot.get_updates()
+        for update in messages:
+            if update.message and update.message.chat_id == GROUP_ID and update.message.document:
+                filename = update.message.document.file_name.lower()
                 if query in filename:
-                    await status_message.edit_text(f"📚 Знайдено: {message.document.file_name}")
+                    await status_message.edit_text(f"📚 Знайдено: {update.message.document.file_name}")
                     await context.bot.forward_message(
                         chat_id=update.effective_chat.id,
                         from_chat_id=GROUP_ID,
-                        message_id=message.message_id
+                        message_id=update.message.message_id
                     )
                     found = True
-                    logger.info(f"Знайдено книгу: {message.document.file_name}")
+                    logger.info(f"Знайдено книгу: {update.message.document.file_name}")
                     break
         
         if not found:
