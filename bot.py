@@ -1,26 +1,23 @@
-import os
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from datetime import datetime
 import logging
-import pytz
 import sys
-import asyncio
+from datetime import datetime
+import pytz
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.error import TelegramError
 
 # Налаштування логування
 logging.basicConfig(
     stream=sys.stdout,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# Ініціалізація бота
+# Токен бота та ID групи
 TOKEN = "7554224281:AAFR9eSa7oxRilNmM2kuh3tIhDWJu1B08ws"
 GROUP_ID = -1002411083990
 
-# Кеш для зберігання повідомлень
-message_cache = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробка команди /start"""
@@ -33,9 +30,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help - допомога"
     )
 
+
 async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пошук книг"""
-    if len(context.args) < 1:
+    """Пошук книг у групі"""
+    if not context.args:
         await update.message.reply_text(
             "ℹ️ Як використовувати пошук:\n"
             "/search назва_книги\n"
@@ -45,24 +43,15 @@ async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = " ".join(context.args).lower()
     status_message = await update.message.reply_text("🔍 Шукаю книгу...")
-    
+
     try:
-        found_books = []
         # Отримуємо останні повідомлення з групи
-        messages = await context.bot.copy_message(
-            chat_id=update.effective_chat.id,
-            from_chat_id=GROUP_ID,
-            message_id=1,
-            disable_notification=True
-        )
-        
-        for msg in messages:
-            if hasattr(msg, 'document') and msg.document:
-                filename = msg.document.file_name.lower()
-                if query in filename:
-                    found_books.append(msg)
-                    if len(found_books) >= 5:  # Обмежуємо кількість результатів
-                        break
+        found_books = []
+        async for msg in context.bot.get_chat_history(chat_id=GROUP_ID, limit=100):
+            if msg.document and query in msg.document.file_name.lower():
+                found_books.append(msg)
+                if len(found_books) >= 5:  # Обмежуємо кількість результатів
+                    break
 
         if found_books:
             await status_message.edit_text(f"📚 Знайдено {len(found_books)} книг:")
@@ -70,7 +59,7 @@ async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.forward_message(
                     chat_id=update.effective_chat.id,
                     from_chat_id=GROUP_ID,
-                    message_id=book.message_id
+                    message_id=book.message_id,
                 )
             logger.info(f"Знайдено {len(found_books)} книг для запиту: {query}")
         else:
@@ -82,16 +71,16 @@ async def search_book(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "- Пошукати іншу книгу"
             )
             logger.info(f"Книгу не знайдено для запиту: {query}")
-            
-    except Exception as e:
-        logger.error(f"Помилка пошуку: {str(e)}")
+
+    except TelegramError as e:
+        logger.error(f"Помилка Telegram: {e}")
         await status_message.edit_text("⚠️ Помилка при пошуку. Спробуйте пізніше.")
+
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Перевірка статусу бота"""
-    kyiv_tz = pytz.timezone('Europe/Kiev')
+    kyiv_tz = pytz.timezone("Europe/Kiev")
     current_time = datetime.now(kyiv_tz).strftime("%Y-%m-%d %H:%M:%S %Z")
-    
     await update.message.reply_text(
         f"✅ Бот активний\n"
         f"⏰ Час: {current_time}\n"
@@ -99,6 +88,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔍 Пошук: доступний"
     )
     logger.info("Перевірка статусу виконана")
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Довідка"""
@@ -117,32 +107,29 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Якщо книгу не знайдено, спробуйте інший варіант назви"
     )
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Обробка помилок"""
     logger.error(f"Update {update} caused error {context.error}")
 
+
 def main():
     """Запуск бота"""
-    try:
-        # Створення застосунку
-        application = Application.builder().token(TOKEN).build()
+    application = Application.builder().token(TOKEN).build()
 
-        # Додавання обробників команд
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("search", search_book))
-        application.add_handler(CommandHandler("status", status))
-        application.add_handler(CommandHandler("help", help_command))
+    # Додавання обробників команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("search", search_book))
+    application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("help", help_command))
 
-        # Додавання обробника помилок
-        application.add_error_handler(error_handler)
+    # Додавання обробника помилок
+    application.add_error_handler(error_handler)
 
-        # Запуск бота
-        logger.info("Бот запущений...")
-        application.run_polling(drop_pending_updates=True)
-        
-    except Exception as e:
-        logger.error(f"Помилка при запуску бота: {str(e)}")
-        sys.exit(1)
+    # Запуск бота
+    logger.info("Бот запущений...")
+    application.run_polling(drop_pending_updates=True)
+
 
 if __name__ == "__main__":
     main()
